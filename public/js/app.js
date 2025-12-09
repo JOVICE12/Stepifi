@@ -1,5 +1,5 @@
 /**
- * STL to STEP Converter - Frontend Application
+ * Stepifi - Frontend Application
  */
 
 class STLConverter {
@@ -19,7 +19,7 @@ class STLConverter {
     this.bindElements();
     this.bindEvents();
     this.initThreeJS();
-    // Don't load job history from storage
+    this.loadJobsFromStorage();
   }
 
   bindElements() {
@@ -114,10 +114,6 @@ class STLConverter {
   }
 
   async processFiles(files) {
-    // Clear any existing jobs when uploading new files
-    this.jobs.clear();
-    this.renderJobs();
-    
     // Preview the first file
     if (files.length > 0) {
       this.previewSTL(files[0]);
@@ -284,11 +280,29 @@ class STLConverter {
   }
 
   saveJobsToStorage() {
-    // Don't persist job history to localStorage
+    const jobsArray = Array.from(this.jobs.entries());
+    localStorage.setItem('stl-converter-jobs', JSON.stringify(jobsArray));
   }
 
   loadJobsFromStorage() {
-    // Don't load job history from localStorage
+    try {
+      const stored = localStorage.getItem('stl-converter-jobs');
+      if (stored) {
+        const jobsArray = JSON.parse(stored);
+        this.jobs = new Map(jobsArray);
+        
+        // Resume polling for incomplete jobs
+        for (const [jobId, job] of this.jobs) {
+          if (job.status === 'queued' || job.status === 'processing') {
+            this.startPollingJob(jobId);
+          }
+        }
+        
+        this.renderJobs();
+      }
+    } catch (err) {
+      console.error('Failed to load jobs from storage:', err);
+    }
   }
 
   // Three.js Preview
@@ -443,11 +457,20 @@ class STLConverter {
         <div class="health-status">
           <div class="health-item">
             <div class="health-item-label">
+              <i class="fas fa-heartbeat"></i>
+              <span>Overall Status</span>
+            </div>
+            <span class="health-badge ${data.status === 'healthy' ? 'healthy' : 'unhealthy'}">
+              ${data.status}
+            </span>
+          </div>
+          <div class="health-item">
+            <div class="health-item-label">
               <i class="fas fa-database"></i>
               <span>Redis</span>
             </div>
-            <span class="health-badge ${data.services.redis === 'connected' ? 'healthy' : 'unhealthy'}">
-              ${data.services.redis}
+            <span class="health-badge ${data.redis ? 'healthy' : 'unhealthy'}">
+              ${data.redis ? 'Connected' : 'Disconnected'}
             </span>
           </div>
           <div class="health-item">
@@ -455,42 +478,21 @@ class STLConverter {
               <i class="fas fa-cube"></i>
               <span>FreeCAD</span>
             </div>
-            <span class="health-badge ${data.services.freecad === 'available' ? 'healthy' : 'unhealthy'}">
-              ${data.services.freecad}
+            <span class="health-badge ${data.freecad ? 'healthy' : 'unhealthy'}">
+              ${data.freecad ? 'Available' : 'Not Available'}
             </span>
           </div>
-          ${data.services.freecadVersion ? `
+          ${data.freecadVersion ? `
             <div class="health-item">
               <div class="health-item-label">
                 <i class="fas fa-code-branch"></i>
-                <span>Version</span>
+                <span>FreeCAD Version</span>
               </div>
               <span style="color: var(--text-secondary); font-size: 0.85rem;">
-                ${data.services.freecadVersion}
+                ${data.freecadVersion}
               </span>
             </div>
           ` : ''}
-          <div class="health-item">
-            <div class="health-item-label">
-              <i class="fas fa-file-upload"></i>
-              <span>Max File Size</span>
-            </div>
-            <span style="color: var(--text-secondary);">${data.config.maxFileSize}</span>
-          </div>
-          <div class="health-item">
-            <div class="health-item-label">
-              <i class="fas fa-clock"></i>
-              <span>Job TTL</span>
-            </div>
-            <span style="color: var(--text-secondary);">${data.config.jobTTL}</span>
-          </div>
-          <div class="health-item">
-            <div class="health-item-label">
-              <i class="fas fa-ruler"></i>
-              <span>Default Tolerance</span>
-            </div>
-            <span style="color: var(--text-secondary);">${data.config.defaultTolerance}</span>
-          </div>
         </div>
       `;
     } catch (err) {
