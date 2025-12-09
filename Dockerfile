@@ -35,6 +35,11 @@ COPY --from=builder /app/node_modules ./node_modules
 # Copy application code
 COPY . .
 
+# Set environment for headless FreeCAD
+ENV QT_QPA_PLATFORM=offscreen
+ENV DISPLAY=:0
+ENV FREECAD_USER_HOME=/tmp
+
 # Create directories for uploads and converted files
 RUN mkdir -p uploads converted logs \
     && chmod 777 uploads converted logs
