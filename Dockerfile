@@ -50,6 +50,9 @@ COPY . .
 RUN mkdir -p uploads converted logs \
     && chmod 777 uploads converted logs
 
+# Required for FreeCAD Qt headless runtime
+RUN mkdir -p /tmp/runtime && chmod 700 /tmp/runtime
+
 EXPOSE 3000 3001
 
 # Run with micromamba environment activated
