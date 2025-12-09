@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
-"""
-DIAGNOSTIC STL → STEP CONVERTER
-THIS VERSION ALWAYS OUTPUTS VALID JSON AND FULL TRACEBACKS.
-"""
-
 import sys
 import os
 import argparse
 import json
-import traceback
+
+# --- MUTE FREECAD NOISE ---
+class DevNull:
+    def write(self, _: str):
+        pass
+    def flush(self):
+        pass
+
+sys.stdout = DevNull()      # silence FreeCAD progress
+sys.stderr = DevNull()      # silence FreeCAD warnings
+
+# REAL stdout for JSON only
+real_stdout = sys.__stdout__
 
 # FreeCAD imports
 try:
@@ -18,156 +25,75 @@ try:
     import MeshPart
     import Import
 except Exception as e:
-    print(json.dumps({
+    real_stdout.write(json.dumps({
         "success": False,
-        "stage": "freecad_import",
-        "error": str(e),
-        "trace": traceback.format_exc()
-    }))
+        "stage": "import",
+        "error": f"FreeCAD import failed: {str(e)}"
+    }) + "\n")
     sys.exit(1)
 
 
-def json_out(obj):
-    """Always print clean JSON and exit."""
-    print(json.dumps(obj, indent=2))
-    sys.exit(0 if obj.get("success", False) else 1)
-
-
-def convert_stl_to_step(input_path, output_path, tolerance, repair):
+def convert_stl_to_step(input_path, output_path, tolerance=0.01, repair=True):
     result = {
-        "success": False,
-        "stage": "init",
         "input": input_path,
         "output": output_path,
         "tolerance": tolerance,
-        "repair": repair,
-        "steps": []
+        "success": False
     }
 
-    def log(step):
-        result["steps"].append(step)
-
     try:
-        # Validate file exists
-        if not os.path.exists(input_path):
-            result["error"] = "Input STL does not exist"
-            result["stage"] = "validation"
-            return result
-
-        log("Reading STL mesh…")
         mesh = Mesh.Mesh()
         mesh.read(input_path)
 
-        if mesh.CountFacets == 0:
-            result["error"] = "Mesh has 0 facets"
-            result["stage"] = "empty_mesh"
-            return result
-
-        result["mesh_stats"] = {
-            "points": mesh.CountPoints,
-            "facets": mesh.CountFacets,
-            "edges": mesh.CountEdges,
-            "isSolid": mesh.isSolid()
-        }
-
-        # Attempt mesh repair
         if repair:
-            log("Running mesh repair…")
-            try:
-                mesh.removeDuplicatedPoints()
-                mesh.removeDuplicatedFacets()
-                mesh.fixSelfIntersections()
-                mesh.fixDegenerations()
-                mesh.removeNonManifolds()
-                mesh.fillupHoles()
-                mesh.harmonizeNormals()
-            except Exception as e:
-                result["mesh_repair_error"] = str(e)
-                result["mesh_repair_trace"] = traceback.format_exc()
+            mesh.fixSelfIntersections()
+            mesh.fixDegenerations()
+            mesh.harmonizeNormals()
 
-        # Create document
-        log("Creating FreeCAD document…")
-        doc = FreeCAD.newDocument("Diag")
+        shape = Part.Shape()
+        shape.makeShapeFromMesh(mesh.Topology, tolerance)
 
-        # Convert to shape
-        log("Converting mesh → shape…")
         try:
-            shape = Part.Shape()
-            shape.makeShapeFromMesh(mesh.Topology, tolerance)
-        except Exception as e:
-            result["stage"] = "mesh_to_shape_fail"
-            result["error"] = str(e)
-            result["trace"] = traceback.format_exc()
-            return result
+            shape = Part.makeSolid(shape)
+        except:
+            pass
 
-        # Convert to solid
-        log("Converting shape → solid if possible…")
-        try:
-            solid = Part.makeSolid(shape)
-            final_shape = solid
-            result["solid"] = True
-        except Exception as e:
-            log("Solid conversion FAILED, using shell instead.")
-            final_shape = shape
-            result["solid"] = False
-            result["solid_error"] = str(e)
-            result["solid_trace"] = traceback.format_exc()
-
-        # Add object to document
-        log("Adding shape to FreeCAD document…")
+        doc = FreeCAD.newDocument("CONVERT")
         obj = doc.addObject("Part::Feature", "Converted")
-        obj.Shape = final_shape
+        obj.Shape = shape
 
-        # Export STEP
-        log("Exporting STEP file…")
-        try:
-            Import.export([obj], output_path)
-        except Exception as e:
-            result["stage"] = "step_export_fail"
-            result["error"] = str(e)
-            result["trace"] = traceback.format_exc()
-            return result
+        Import.export([obj], output_path)
 
-        # Validate STEP file
-        if not os.path.exists(output_path):
-            result["stage"] = "step_missing"
-            result["error"] = "STEP file was not created"
-            return result
+        FreeCAD.closeDocument("CONVERT")
 
-        size = os.path.getsize(output_path)
-        if size == 0:
-            result["stage"] = "step_empty"
-            result["error"] = "STEP file is zero bytes"
-            return result
-
-        result["success"] = True
-        result["stage"] = "complete"
-        result["output_size"] = size
-        return result
+        if os.path.exists(output_path):
+            result["success"] = True
+            result["output_size"] = os.path.getsize(output_path)
+        else:
+            result["error"] = "STEP export failed"
 
     except Exception as e:
-        result["stage"] = "fatal"
         result["error"] = str(e)
-        result["trace"] = traceback.format_exc()
-        return result
+
+    return result
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("input")
-    parser.add_argument("output")
-    parser.add_argument("--tolerance", type=float, default=0.01)
-    parser.add_argument("--repair", action="store_true", default=True)
-    parser.add_argument("--no-repair", action="store_false", dest="repair")
-    args = parser.parse_args()
+    args = argparse.ArgumentParser()
+    args.add_argument("input")
+    args.add_argument("output")
+    args.add_argument("--tolerance", type=float, default=0.01)
+    args.add_argument("--repair", action="store_true")
+    args = args.parse_args()
 
-    result = convert_stl_to_step(
+    res = convert_stl_to_step(
         args.input,
         args.output,
-        args.tolerance,
-        args.repair
+        tolerance=args.tolerance,
+        repair=args.repair
     )
-    json_out(result)
+
+    real_stdout.write(json.dumps(res) + "\n")
 
 
 if __name__ == "__main__":
