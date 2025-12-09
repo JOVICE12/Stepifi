@@ -58,4 +58,4 @@ RUN mkdir -p uploads converted logs /tmp/runtime \
 
 EXPOSE 3000 3001
 
-CMD ["bash", "-c", "micromamba run -n base node src/server.js"]
+CMD ["micromambarun", "-n", "base", "node", "src/server.js"]
