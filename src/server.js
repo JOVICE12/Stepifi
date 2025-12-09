@@ -18,13 +18,13 @@ const conversionRoutes = require('./routes/conversion.routes');
 
 const app = express();
 
-// ----------------------
-// FIXED AND WORKING CSP
-// ----------------------
+/* ---------------------------------------------------
+   🔥 FIXED CSP — Helmet defaults DISABLED
+---------------------------------------------------- */
 app.use(
   helmet({
     contentSecurityPolicy: {
-      useDefaults: true,
+      useDefaults: false,   // TURN OFF Helmet's injected defaults
       directives: {
         defaultSrc: ["'self'"],
 
@@ -40,33 +40,31 @@ app.use(
           "'self'",
           "'unsafe-inline'",
           "https://cdnjs.cloudflare.com",
-          "https://fonts.googleapis.com",
+          "https://fonts.googleapis.com"
         ],
 
         fontSrc: [
           "'self'",
           "https://fonts.gstatic.com",
-          "https://cdnjs.cloudflare.com",
+          "https://cdnjs.cloudflare.com"
         ],
 
-        imgSrc: [
-          "'self'",
-          "data:",
-          "blob:",
-        ],
+        imgSrc: ["'self'", "blob:", "data:"],
 
-        connectSrc: [
-          "'self'",
-        ],
+        connectSrc: ["'self'"],
 
         workerSrc: ["'self'", "blob:"],
-        frameSrc: ["'self'"],
+
         objectSrc: ["'none'"],
+        frameSrc: ["'self'"],
       },
-    },
+    }
   })
 );
 
+/* ---------------------------------------------------
+   CORE APP
+---------------------------------------------------- */
 app.use(cors());
 app.use(express.json());
 
@@ -87,11 +85,11 @@ app.use(express.static(path.join(__dirname, '../public')));
 // API routes
 app.use('/api', conversionRoutes);
 
-// Health check endpoint
+// Health endpoint
 app.get('/health', async (req, res) => {
   const redisHealthy = await redisService.healthCheck();
   const freecadCheck = await converterService.checkFreecad();
-
+  
   const healthy = redisHealthy && freecadCheck.available;
 
   res.status(healthy ? 200 : 503).json({
@@ -100,13 +98,13 @@ app.get('/health', async (req, res) => {
     services: {
       redis: redisHealthy ? 'connected' : 'disconnected',
       freecad: freecadCheck.available ? 'available' : 'not found',
-      freecadVersion: freecadCheck.version || null,
+      freecadVersion: freecadCheck.version || null
     },
     config: {
       maxFileSize: `${Math.round(config.upload.maxFileSize / 1024 / 1024)}MB`,
       jobTTL: `${config.jobs.ttlHours} hours`,
-      defaultTolerance: config.conversion.defaultTolerance,
-    },
+      defaultTolerance: config.conversion.defaultTolerance
+    }
   });
 });
 
@@ -114,17 +112,14 @@ app.get('/health', async (req, res) => {
 app.get('/api/stats', async (req, res) => {
   try {
     const cleanupStats = await cleanupService.getStats();
-    res.json({
-      success: true,
-      stats: cleanupStats,
-    });
+    res.json({ success: true, stats: cleanupStats });
   } catch (err) {
     logger.error('Stats error:', err);
     res.status(500).json({ success: false, error: 'Failed to get stats' });
   }
 });
 
-// SPA catch-all
+// SPA routing
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
@@ -135,15 +130,14 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
-// -----------------------
-// Server startup function
-// -----------------------
+/* ---------------------------------------------------
+   SERVER STARTUP
+---------------------------------------------------- */
 async function start() {
   try {
     await fileService.ensureDirectories();
 
     redisService.connect();
-
     const queue = queueService.initialize();
 
     const serverAdapter = new ExpressAdapter();
@@ -151,7 +145,7 @@ async function start() {
 
     createBullBoard({
       queues: [new BullMQAdapter(queue)],
-      serverAdapter,
+      serverAdapter
     });
 
     const bullBoardApp = express();
@@ -161,22 +155,19 @@ async function start() {
 
     const freecadCheck = await converterService.checkFreecad();
     if (!freecadCheck.available) {
-      logger.warn('FreeCAD (freecadcmd) not found. Conversions will fail.');
-    } else {
-      logger.info(`FreeCAD available: ${freecadCheck.version}`);
+      logger.warn('FreeCAD (freecadcmd) not found!');
     }
 
     app.listen(config.port, () => {
       logger.info(`Server running on port ${config.port}`);
-      logger.info(`Environment: ${config.nodeEnv}`);
     });
 
     bullBoardApp.listen(config.bullBoardPort, () => {
-      logger.info(`Bull Board running on port ${config.bullBoardPort}/admin/queues`);
+      logger.info(`Bull Board on port ${config.bullBoardPort}/admin/queues`);
     });
 
-    const shutdown = async (signal) => {
-      logger.info(`Received ${signal}, shutting down gracefully...`);
+    const shutdown = async (sig) => {
+      logger.info(`Received ${sig}, shutting down...`);
       cleanupService.stop();
       await queueService.close();
       await redisService.disconnect();
@@ -187,7 +178,7 @@ async function start() {
     process.on('SIGINT', () => shutdown('SIGINT'));
 
   } catch (err) {
-    logger.error('Failed to start server:', err);
+    logger.error('Startup failure:', err);
     process.exit(1);
   }
 }
