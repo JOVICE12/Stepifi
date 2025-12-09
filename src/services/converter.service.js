@@ -51,7 +51,7 @@ class ConverterService {
       logger.debug('Running FreeCAD conversion', { args });
       
       // Use freecadcmd for headless operation
-      const process = spawn('freecadcmd', args, {
+      const process = spawn('FreeCADCmd', args, {
         timeout: config.conversion.timeout,
         env: {
           ...process.env,
@@ -135,7 +135,7 @@ class ConverterService {
         '--info',
       ];
       
-      const process = spawn('freecadcmd', args, {
+      const process = spawn('FreeCADCmd', args, {
         timeout: 30000, // 30 second timeout for info
         env: {
           ...process.env,
