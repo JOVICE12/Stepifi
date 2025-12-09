@@ -1,5 +1,5 @@
 /**
- * Stepifi - Frontend Application
+ * STL to STEP Converter - Frontend Application
  */
 
 class STLConverter {
@@ -19,7 +19,7 @@ class STLConverter {
     this.bindElements();
     this.bindEvents();
     this.initThreeJS();
-    // No job history - don't load from storage
+    // Don't load job history from storage
   }
 
   bindElements() {
@@ -114,6 +114,10 @@ class STLConverter {
   }
 
   async processFiles(files) {
+    // Clear any existing jobs when uploading new files
+    this.jobs.clear();
+    this.renderJobs();
+    
     // Preview the first file
     if (files.length > 0) {
       this.previewSTL(files[0]);
@@ -280,11 +284,11 @@ class STLConverter {
   }
 
   saveJobsToStorage() {
-    // No job history - don't save to storage
+    // Don't persist job history to localStorage
   }
 
   loadJobsFromStorage() {
-    // No job history - don't load from storage
+    // Don't load job history from localStorage
   }
 
   // Three.js Preview
