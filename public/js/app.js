@@ -1,5 +1,5 @@
 /**
- * STL to STEP Converter - Frontend Application
+ * Stepifi - Frontend Application
  */
 
 class STLConverter {
@@ -19,7 +19,7 @@ class STLConverter {
     this.bindElements();
     this.bindEvents();
     this.initThreeJS();
-    this.loadJobsFromStorage();
+    // No job history - don't load from storage
   }
 
   bindElements() {
@@ -280,29 +280,11 @@ class STLConverter {
   }
 
   saveJobsToStorage() {
-    const jobsArray = Array.from(this.jobs.entries());
-    localStorage.setItem('stl-converter-jobs', JSON.stringify(jobsArray));
+    // No job history - don't save to storage
   }
 
   loadJobsFromStorage() {
-    try {
-      const stored = localStorage.getItem('stl-converter-jobs');
-      if (stored) {
-        const jobsArray = JSON.parse(stored);
-        this.jobs = new Map(jobsArray);
-        
-        // Resume polling for incomplete jobs
-        for (const [jobId, job] of this.jobs) {
-          if (job.status === 'queued' || job.status === 'processing') {
-            this.startPollingJob(jobId);
-          }
-        }
-        
-        this.renderJobs();
-      }
-    } catch (err) {
-      console.error('Failed to load jobs from storage:', err);
-    }
+    // No job history - don't load from storage
   }
 
   // Three.js Preview
