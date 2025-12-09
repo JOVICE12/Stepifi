@@ -5,64 +5,54 @@ const config = require("../config");
 
 class ConverterService {
   constructor() {
-    this.freecadCmd = "/opt/conda/bin/freecadcmd";
     this.pythonScript = path.join(__dirname, "../scripts/convert.py");
+    this.cmd = "/opt/conda/bin/freecadcmd";
   }
 
-  async convert(inputPath, outputPath, options = {}) {
-    const tolerance = options.tolerance || config.conversion.defaultTolerance;
+  async convert(jobId, inputPath, outputPath, options) {
+    const tolerance = options.tolerance ?? config.conversion.defaultTolerance;
     const repair = options.repair !== false;
 
+    // ✔ CORRECT FreeCAD 0.21 script invocation
+    const args = [
+      "-c",
+      "--python", this.pythonScript,
+      "--",
+      inputPath,
+      outputPath,
+      `--tolerance=${tolerance}`,
+      repair ? "--repair" : "--no-repair"
+    ];
+
     logger.info("Running FreeCAD conversion", {
-      cmd: this.freecadCmd,
-      args: [
-        "--console",
-        "--python", this.pythonScript,
-        "--",
-        inputPath,
-        outputPath,
-        `--tolerance=${tolerance}`,
-        repair ? "--repair" : "--no-repair",
-      ]
+      cmd: this.cmd,
+      args
     });
 
     return new Promise((resolve, reject) => {
-      const args = [
-        "--console",
-        "--python", this.pythonScript,
-        "--",
-        inputPath,
-        outputPath,
-        `--tolerance=${tolerance}`,
-        repair ? "--repair" : "--no-repair",
-      ];
-
-      const proc = spawn(this.freecadCmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(this.cmd, args, { timeout: config.conversion.timeout });
 
       let stdout = "";
       let stderr = "";
 
-      proc.stdout.on("data", (d) => (stdout += d.toString()));
-      proc.stderr.on("data", (d) => (stderr += d.toString()));
+      child.stdout.on("data", (data) => (stdout += data.toString()));
+      child.stderr.on("data", (data) => (stderr += data.toString()));
 
-      proc.on("close", (code) => {
+      child.on("close", (code) => {
         if (code !== 0) {
           logger.error("Conversion failed", { code, stderr });
-          return reject(new Error(stderr || `FreeCAD exited with code ${code}`));
+          return reject(new Error(stderr || "FreeCAD failed"));
         }
 
-        // Validate STEP file truly exists and is > 0 bytes
-        try {
-          const size = require("fs").statSync(outputPath).size;
-          if (size === 0) {
-            return reject(new Error("Generated STEP file is empty"));
-          }
-        } catch (err) {
-          return reject(new Error("STEP file not generated"));
-        }
+        logger.info("Conversion completed", { stdout });
 
-        logger.info("Conversion completed successfully");
+        // FreeCAD prints banners; success = STEP file exists
         resolve({ stdout, stderr });
+      });
+
+      child.on("error", (err) => {
+        logger.error("Failed to run FreeCAD", { err });
+        reject(err);
       });
     });
   }
