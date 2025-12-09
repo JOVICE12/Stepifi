@@ -1,5 +1,4 @@
 const express = require('express');
-const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
@@ -17,17 +16,6 @@ const converterService = require('./services/converter.service');
 const conversionRoutes = require('./routes/conversion.routes');
 
 const app = express();
-
-/* ---------------------------------------------------
-   🚨 DISABLE ALL CSP COMPLETELY
----------------------------------------------------- */
-app.use(
-  helmet({
-    contentSecurityPolicy: false
-  })
-);
-
-/* --------------------------------------------------- */
 
 app.use(cors());
 app.use(express.json());
@@ -54,10 +42,8 @@ app.get('/health', async (req, res) => {
   const redisHealthy = await redisService.healthCheck();
   const freecadCheck = await converterService.checkFreecad();
 
-  const healthy = redisHealthy && freecadCheck.available;
-
-  res.status(healthy ? 200 : 503).json({
-    status: healthy ? 'healthy' : 'unhealthy',
+  res.json({
+    status: redisHealthy && freecadCheck.available ? 'healthy' : 'unhealthy',
     timestamp: new Date().toISOString(),
     services: {
       redis: redisHealthy ? 'connected' : 'disconnected',
