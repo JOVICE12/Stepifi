@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 STL to STEP Converter with Mesh Repair + Planar Face Merging
+(Forced clean JSON output for use with external processes)
 """
 
 import sys
@@ -20,7 +21,14 @@ except ImportError as e:
         "error": f"FreeCAD import failed: {str(e)}",
         "stage": "import"
     }))
-    sys.exit(1)
+    sys.exit(0)      # ← FORCE immediate exit
+
+
+def safe_exit(result):
+    """Prints JSON and immediately terminates FreeCAD before it prints anything else."""
+    print(json.dumps(result, indent=2))
+    sys.stdout.flush()
+    os._exit(0)      # ← ← ← HARD EXIT (kills FreeCAD BEFORE progress bars appear)
 
 
 def get_mesh_info(mesh):
@@ -91,7 +99,7 @@ def convert_stl_to_step(input_path, output_path, tolerance=0.01, repair=True, in
         if not os.path.exists(input_path):
             result["error"] = f"Input file not found: {input_path}"
             result["stage"] = "validation"
-            return result
+            safe_exit(result)
 
         mesh = Mesh.Mesh()
         mesh.read(input_path)
@@ -99,13 +107,13 @@ def convert_stl_to_step(input_path, output_path, tolerance=0.01, repair=True, in
         if mesh.CountFacets == 0:
             result["error"] = "STL file contains no geometry"
             result["stage"] = "read"
-            return result
+            safe_exit(result)
 
         result["mesh_info_before"] = get_mesh_info(mesh)
 
         if info_only:
             result["success"] = True
-            return result
+            safe_exit(result)
 
         if repair:
             mesh, repairs = repair_mesh(mesh)
@@ -114,17 +122,9 @@ def convert_stl_to_step(input_path, output_path, tolerance=0.01, repair=True, in
 
         doc = FreeCAD.newDocument("STLtoSTEP")
 
-        # ------------------------------
-        # ⭐ FIX: Use MeshPart.meshToShape()
-        # ------------------------------
-        try:
-            shape = MeshPart.meshToShape(mesh, tolerance)
-        except Exception as e:
-            result["error"] = f"meshToShape failed: {str(e)}"
-            result["stage"] = "meshToShape"
-            return result
+        shape = Part.Shape()
+        shape.makeShapeFromMesh(mesh.Topology, tolerance)
 
-        # Try solid
         try:
             solid = Part.makeSolid(shape)
             final_shape = solid
@@ -153,16 +153,12 @@ def convert_stl_to_step(input_path, output_path, tolerance=0.01, repair=True, in
     except Exception as e:
         result["error"] = str(e)
         result["stage"] = "conversion"
-        try:
-            FreeCAD.closeDocument("STLtoSTEP")
-        except:
-            pass
 
-    return result
+    safe_exit(result)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert STL → STEP with mesh repair + planar merging")
+    parser = argparse.ArgumentParser(description="Convert STL → STEP")
     parser.add_argument("input")
     parser.add_argument("output")
     parser.add_argument("--tolerance", type=float, default=0.01)
@@ -171,16 +167,13 @@ def main():
     parser.add_argument("--info", action="store_true")
     args = parser.parse_args()
 
-    result = convert_stl_to_step(
+    convert_stl_to_step(
         args.input,
         args.output,
-        tolerance=args.tolerance,
-        repair=args.repair,
-        info_only=args.info
+        args.tolerance,
+        args.repair,
+        args.info
     )
-
-    print(json.dumps(result, indent=2))
-    sys.exit(0 if result["success"] else 1)
 
 
 if __name__ == "__main__":
