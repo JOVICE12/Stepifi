@@ -1,155 +1,170 @@
-const { spawn } = require("child_process");
-const path = require("path");
-const fs = require("fs").promises;
-const config = require("../config");
-const logger = require("../utils/logger");
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs').promises;
+const config = require('../config');
+const logger = require('../utils/logger');
 
-const FREECAD = "/opt/conda/bin/freecadcmd";
+const FREECAD = '/opt/conda/bin/freecadcmd';
 
+// Required environment for FreeCAD headless operation
 const FREECAD_ENV = {
   ...process.env,
-  QT_QPA_PLATFORM: "offscreen",
-  XDG_RUNTIME_DIR: "/tmp/runtime",
-  CONDA_PREFIX: "/opt/conda",
-  LD_LIBRARY_PATH: "/opt/conda/lib"
+  QT_QPA_PLATFORM: 'offscreen',
+  XDG_RUNTIME_DIR: '/tmp/runtime',
+  CONDA_PREFIX: '/opt/conda',
+  LD_LIBRARY_PATH: '/opt/conda/lib'
 };
 
 class ConverterService {
   constructor() {
-    this.pythonScript = path.join(config.paths.pythonScripts, "convert.py");
+    this.pythonScript = path.join(config.paths.pythonScripts, 'convert.py');
   }
 
   /**
    * Convert STL → STEP
    */
   async convert(inputPath, outputPath, options = {}) {
-    const tolerance =
-      options.tolerance || config.conversion.defaultTolerance;
+    const tolerance = options.tolerance || config.conversion.defaultTolerance;
+    const repair = options.repair !== false && config.conversion.repairMesh;
 
-    const repair =
-      options.repair !== false && config.conversion.repairMesh;
-
-    // Ensure file exists
+    // Validate input
     try {
       await fs.access(inputPath);
     } catch {
-      return { success: false, error: "Input file not found" };
+      return { success: false, error: 'Input file not found' };
     }
 
+    // Build correct FreeCAD argument list
+    const args = [
+      this.pythonScript,
+      "--",                            // ← REQUIRED so FreeCAD stops parsing
+      inputPath,
+      outputPath,
+      `--tolerance=${tolerance}`,
+      repair ? "--repair" : "--no-repair"
+    ];
+
+    logger.info("Running FreeCAD conversion", {
+      cmd: FREECAD,
+      args
+    });
+
     return new Promise((resolve) => {
-
-const args = [
-  this.pythonScript,
-  "--",                // <--- REQUIRED
-  inputPath,
-  outputPath,
-  `--tolerance=${tolerance}`,
-  repair ? '--repair' : '--no-repair'
-];
-
-
-      logger.debug("FreeCAD conversion", { cmd: FREECAD, args });
-
       const proc = spawn(FREECAD, args, {
-        env: FREECAD_ENV,
-        timeout: config.conversion.timeout
+        timeout: config.conversion.timeout,
+        env: FREECAD_ENV
       });
 
       let stdout = "";
       let stderr = "";
 
-      proc.stdout.on("data", (d) => (stdout += d.toString()));
-      proc.stderr.on("data", (d) => (stderr += d.toString()));
+      proc.stdout.on("data", d => stdout += d.toString());
+      proc.stderr.on("data", d => stderr += d.toString());
 
       proc.on("close", (code) => {
+        // Success
         if (code === 0) {
           try {
-            const json = JSON.parse(stdout.trim().split("\n").pop());
+            // convert.py prints JSON as last line
+            const lines = stdout.trim().split("\n");
+            const json = JSON.parse(lines[lines.length - 1]);
             resolve(json);
-          } catch (e) {
+          } catch (err) {
+            logger.error("Failed to parse conversion output", { stdout, stderr });
             resolve({
               success: false,
-              error: "Failed to parse conversion JSON",
+              error: "Failed to parse conversion result",
               stdout,
               stderr
             });
           }
-        } else {
-          resolve({
-            success: false,
-            error: stderr.trim() || "FreeCAD conversion failed",
-            code,
-            stderr
-          });
+          return;
         }
+
+        // Error
+        logger.error("Conversion failed", { code, stderr });
+        resolve({
+          success: false,
+          error: stderr.trim() || "Conversion failed",
+          code,
+          stderr
+        });
       });
 
       proc.on("error", (err) => {
+        logger.error("Failed to spawn FreeCAD", { error: err.message });
         resolve({
           success: false,
-          error:
-            err.code === "ENOENT"
-              ? "FreeCAD binary not found"
-              : err.message
+          error: err.code === "ENOENT" ? "FreeCAD not found" : err.message
         });
       });
     });
   }
 
   /**
-   * Mesh info
+   * Extract mesh info
    */
   async getMeshInfo(inputPath) {
-    return new Promise((resolve) => {
-      const args = [
-        "-c",
-        this.pythonScript,
-        "--",
-        inputPath,
-        "/dev/null",
-        "--info"
-      ];
+    const args = [
+      this.pythonScript,
+      "--",
+      inputPath,
+      "/dev/null",
+      "--info"
+    ];
 
-      const proc = spawn(FREECAD, args, { env: FREECAD_ENV, timeout: 20000 });
+    return new Promise((resolve) => {
+      const proc = spawn(FREECAD, args, {
+        timeout: 30000,
+        env: FREECAD_ENV
+      });
 
       let stdout = "";
-      proc.stdout.on("data", (d) => (stdout += d.toString()));
+      proc.stdout.on("data", d => stdout += d.toString());
 
       proc.on("close", (code) => {
         if (code === 0) {
           try {
-            resolve(JSON.parse(stdout.trim().split("\n").pop()));
+            const lines = stdout.trim().split("\n");
+            resolve(JSON.parse(lines[lines.length - 1]));
           } catch {
-            resolve({ success: false, error: "Failed to parse mesh info JSON" });
+            resolve({ success: false, error: "Failed to parse mesh info" });
           }
         } else {
-          resolve({ success: false, error: "FreeCAD mesh-info failed" });
+          resolve({ success: false, error: "Mesh info command failed" });
         }
+      });
+
+      proc.on("error", (err) => {
+        resolve({ success: false, error: err.message });
       });
     });
   }
 
+
   /**
-   * FreeCAD availability
+   * Check FreeCAD availability
    */
   async checkFreecad() {
     return new Promise((resolve) => {
       const proc = spawn(FREECAD, ["--version"], {
-        env: FREECAD_ENV,
-        timeout: 5000
+        timeout: 10000,
+        env: FREECAD_ENV
       });
 
       let stdout = "";
-      proc.stdout.on("data", (d) => (stdout += d.toString()));
+      proc.stdout.on("data", d => stdout += d.toString());
 
-      proc.on("close", () => {
+      proc.on("close", (code) => {
         resolve({
-          available: true,
-          version: stdout.trim()
+          available: code === 0,
+          version: stdout.trim() || null
         });
       });
 
-      proc.on("error", () => resolve({ available: false }));
+      proc.on("error", () => {
+        resolve({ available: false });
+      });
     });
   }
 }
