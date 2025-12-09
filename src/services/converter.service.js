@@ -4,7 +4,7 @@ const fs = require('fs').promises;
 const config = require('../config');
 const logger = require('../utils/logger');
 
-// Headless FreeCAD binary
+// FreeCAD headless binary
 const FREECAD = '/opt/conda/bin/freecadcmd';
 
 const FREECAD_ENV = {
@@ -20,20 +20,30 @@ class ConverterService {
     this.pythonScript = path.join(config.paths.pythonScripts, 'convert.py');
   }
 
+  extractJson(stdout) {
+    // Find the last JSON block inside messy stdout
+    const matches = stdout.match(/\{[\s\S]*\}$/gm);
+    if (!matches) return null;
+
+    const last = matches[matches.length - 1];
+    try {
+      return JSON.parse(last);
+    } catch {
+      return null;
+    }
+  }
+
   async convert(inputPath, outputPath, options = {}) {
     const tolerance = options.tolerance || config.conversion.defaultTolerance;
     const repair = options.repair !== false;
 
-    // Verify STL exists
-    try { await fs.access(inputPath); }
-    catch { return { success: false, error: 'Input file not found' }; }
+    try {
+      await fs.access(inputPath);
+    } catch {
+      return { success: false, error: 'Input file not found' };
+    }
 
     return new Promise((resolve) => {
-      /**
-       * FREECAD ARG PASSING FIX:
-       * FreeCAD does NOT pass command-line args to Python scripts.
-       * So we embed sys.argv and exec() manually inside -c.
-       */
       const pythonArgv = JSON.stringify([
         this.pythonScript,
         inputPath,
@@ -64,13 +74,12 @@ exec(open("${this.pythonScript}").read())
       proc.stderr.on('data', (d) => stderr += d.toString());
 
       proc.on('close', () => {
-        const lastLine = stdout.trim().split('\n').pop();
+        const parsed = this.extractJson(stdout);
 
-        try {
-          const result = JSON.parse(lastLine);
-          resolve(result);
-        } catch (err) {
-          logger.error("Failed parsing output", { stdout, stderr });
+        if (parsed) {
+          resolve(parsed);
+        } else {
+          logger.error("Failed parsing JSON output", { stdout, stderr });
           resolve({
             success: false,
             error: "Failed to parse JSON output from FreeCAD",
@@ -81,10 +90,7 @@ exec(open("${this.pythonScript}").read())
       });
 
       proc.on('error', (err) => {
-        resolve({
-          success: false,
-          error: err.message
-        });
+        resolve({ success: false, error: err.message });
       });
     });
   }
@@ -113,8 +119,8 @@ exec(open("${this.pythonScript}").read())
       proc.stdout.on('data', (d) => stdout += d.toString());
 
       proc.on('close', () => {
-        try { resolve(JSON.parse(stdout.trim().split('\n').pop())); }
-        catch { resolve({ success: false, error: "Failed to parse mesh info" }); }
+        const parsed = this.extractJson(stdout);
+        resolve(parsed || { success: false, error: "Failed to parse mesh info" });
       });
 
       proc.on('error', (err) => {
