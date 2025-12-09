@@ -38,16 +38,15 @@ class ConverterService {
 
     return new Promise((resolve) => {
 
-      const args = [
-        "-c",
-        this.pythonScript,
-        "--",               // <<< REQUIRED — separates FreeCAD args from python args
-        inputPath,
-        outputPath,
-        "--tolerance",
-        String(tolerance),
-        repair ? "--repair" : "--no-repair"
-      ];
+const args = [
+  this.pythonScript,
+  "--",                // <--- REQUIRED
+  inputPath,
+  outputPath,
+  `--tolerance=${tolerance}`,
+  repair ? '--repair' : '--no-repair'
+];
+
 
       logger.debug("FreeCAD conversion", { cmd: FREECAD, args });
 
