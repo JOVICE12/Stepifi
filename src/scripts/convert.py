@@ -92,12 +92,11 @@ def repair_mesh(mesh):
         if not mesh.hasSelfIntersections():
             repairs.append("Fixed self-intersections")
 
-    # Fix degenerated facets
+    # Fix degenerated facets - handle different API versions
     try:
         mesh.fixDegenerations(0.0)
         repairs.append("Fixed degenerations")
     except Exception:
-        # Try with different signature for backwards compatibility
         try:
             mesh.fixDegenerations()
             repairs.append("Fixed degenerations")
@@ -105,12 +104,23 @@ def repair_mesh(mesh):
             pass
 
     if mesh.hasNonManifolds():
-        mesh.removeNonManifolds()
-        if not mesh.hasNonManifolds():
-            repairs.append("Removed non-manifolds")
+        try:
+            mesh.removeNonManifolds()
+            if not mesh.hasNonManifolds():
+                repairs.append("Removed non-manifolds")
+        except Exception:
+            pass
 
-    mesh.fillupHoles()
-    repairs.append("Filled holes")
+    # Fill holes - handle different API versions
+    try:
+        mesh.fillupHoles(1000)
+        repairs.append("Filled holes")
+    except Exception:
+        try:
+            mesh.fillupHoles()
+            repairs.append("Filled holes")
+        except Exception:
+            pass
 
     mesh.harmonizeNormals()
     repairs.append("Harmonized normals")
