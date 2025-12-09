@@ -1,7 +1,7 @@
 # Stepifi
 
 <p align="center">
-  <img src="logo.png" alt="Stepifi Logo" width="200">
+  <img src="logo.png" alt="Stepifi Logo" width="900">
 </p>
 
 A self-hosted web application that converts STL mesh files to STEP (ISO 10303) solid format. Built for makers, engineers, and 3D printing enthusiasts who need to work with CAD software that requires STEP files.
