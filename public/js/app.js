@@ -114,9 +114,13 @@ class STLConverter {
   }
 
   async processFiles(files) {
-    // Preview the first file
+    // Show preview section with loading state
     if (files.length > 0) {
-      this.previewSTL(files[0]);
+      this.previewSection.classList.remove('hidden');
+      this.previewContainer.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i><p>Loading preview...</p></div>';
+      
+      // Preview the first file
+      setTimeout(() => this.previewSTL(files[0]), 100);
     }
 
     // Upload all files for conversion
@@ -362,6 +366,10 @@ class STLConverter {
     const reader = new FileReader();
     
     reader.onload = (e) => {
+      // Remove loading message
+      const loadingDiv = this.previewContainer.querySelector('.loading');
+      if (loadingDiv) loadingDiv.remove();
+      
       const loader = new THREE.STLLoader();
       const geometry = loader.parse(e.target.result);
       
