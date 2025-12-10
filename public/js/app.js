@@ -117,51 +117,14 @@ class STLConverter {
     this.jobs.clear();
     this.renderJobs();
     
-    // Show loading spinner immediately
+    // Preview the first file immediately
     if (files.length > 0) {
-      this.showPreviewLoading();
-      
-      // Start preview loading (non-blocking)
-      setTimeout(() => this.previewSTL(files[0]), 10);
+      this.previewSTL(files[0]);
     }
 
     // Upload all files for conversion
     for (const file of files) {
       await this.uploadFile(file);
-    }
-  }
-
-  showPreviewLoading() {
-    // Remove any existing loading overlay
-    const existingLoader = this.previewContainer.querySelector('.preview-loading');
-    if (existingLoader) {
-      existingLoader.remove();
-    }
-    
-    // Create and show loading overlay
-    const loader = document.createElement('div');
-    loader.className = 'preview-loading';
-    loader.style.position = 'absolute';
-    loader.style.inset = '0';
-    loader.style.background = 'var(--bg-primary)';
-    loader.style.zIndex = '10';
-    loader.style.display = 'flex';
-    loader.style.alignItems = 'center';
-    loader.style.justifyContent = 'center';
-    loader.innerHTML = `
-      <div class="loading">
-        <i class="fas fa-spinner fa-spin"></i>
-        <p>Loading 3D preview...</p>
-      </div>
-    `;
-    
-    this.previewContainer.appendChild(loader);
-  }
-
-  hidePreviewLoading() {
-    const loadingOverlay = this.previewContainer.querySelector('.preview-loading');
-    if (loadingOverlay) {
-      loadingOverlay.remove();
     }
   }
 
@@ -294,6 +257,11 @@ class STLConverter {
               <i class="fas fa-download"></i> Download STEP
             </button>
           ` : ''}
+          ${(job.status === 'queued' || job.status === 'processing') ? `
+            <button class="btn btn-danger btn-sm" onclick="app.cancelJob('${job.id}')">
+              <i class="fas fa-times"></i> Cancel
+            </button>
+          ` : ''}
           <button class="btn btn-ghost btn-sm" onclick="app.deleteJob('${job.id}')">
             <i class="fas fa-trash"></i>
           </button>
@@ -304,6 +272,16 @@ class STLConverter {
 
   async downloadJob(jobId) {
     window.location.href = `/api/download/${jobId}`;
+  }
+
+  async cancelJob(jobId) {
+    try {
+      await fetch(`/api/job/${jobId}`, { method: 'DELETE' });
+      this.removeJob(jobId);
+      this.showToast('Job cancelled', 'warning');
+    } catch (err) {
+      this.showToast('Failed to cancel job', 'error');
+    }
   }
 
   async deleteJob(jobId) {
@@ -370,6 +348,9 @@ class STLConverter {
   }
 
   previewSTL(file) {
+    // Show toast that we're loading
+    this.showToast('Loading 3D preview...', 'info');
+    
     const reader = new FileReader();
     
     reader.onload = (e) => {
@@ -418,17 +399,14 @@ class STLConverter {
         // Reset camera
         this.resetCameraView();
 
-        // Hide loading spinner
-        this.hidePreviewLoading();
+        this.showToast('3D preview loaded!', 'success');
       } catch (err) {
         console.error('Failed to load STL:', err);
-        this.hidePreviewLoading();
         this.showToast('Failed to load 3D preview', 'error');
       }
     };
 
     reader.onerror = () => {
-      this.hidePreviewLoading();
       this.showToast('Failed to read file', 'error');
     };
 
