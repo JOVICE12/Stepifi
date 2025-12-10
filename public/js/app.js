@@ -19,7 +19,6 @@ class STLConverter {
     this.bindElements();
     this.bindEvents();
     this.initThreeJS();
-    // Don't load jobs from storage anymore
   }
 
   bindElements() {
@@ -118,14 +117,51 @@ class STLConverter {
     this.jobs.clear();
     this.renderJobs();
     
-    // Preview the first file
+    // Show loading spinner immediately
     if (files.length > 0) {
-      this.previewSTL(files[0]);
+      this.showPreviewLoading();
+      
+      // Start preview loading (non-blocking)
+      setTimeout(() => this.previewSTL(files[0]), 10);
     }
 
     // Upload all files for conversion
     for (const file of files) {
       await this.uploadFile(file);
+    }
+  }
+
+  showPreviewLoading() {
+    // Remove any existing loading overlay
+    const existingLoader = this.previewContainer.querySelector('.preview-loading');
+    if (existingLoader) {
+      existingLoader.remove();
+    }
+    
+    // Create and show loading overlay
+    const loader = document.createElement('div');
+    loader.className = 'preview-loading';
+    loader.style.position = 'absolute';
+    loader.style.inset = '0';
+    loader.style.background = 'var(--bg-primary)';
+    loader.style.zIndex = '10';
+    loader.style.display = 'flex';
+    loader.style.alignItems = 'center';
+    loader.style.justifyContent = 'center';
+    loader.innerHTML = `
+      <div class="loading">
+        <i class="fas fa-spinner fa-spin"></i>
+        <p>Loading 3D preview...</p>
+      </div>
+    `;
+    
+    this.previewContainer.appendChild(loader);
+  }
+
+  hidePreviewLoading() {
+    const loadingOverlay = this.previewContainer.querySelector('.preview-loading');
+    if (loadingOverlay) {
+      loadingOverlay.remove();
     }
   }
 
@@ -337,52 +373,63 @@ class STLConverter {
     const reader = new FileReader();
     
     reader.onload = (e) => {
-      const loader = new THREE.STLLoader();
-      const geometry = loader.parse(e.target.result);
-      
-      // Remove existing mesh
-      if (this.mesh) {
-        this.scene.remove(this.mesh);
-        this.mesh.geometry.dispose();
-        this.mesh.material.dispose();
+      try {
+        const loader = new THREE.STLLoader();
+        const geometry = loader.parse(e.target.result);
+        
+        // Remove existing mesh
+        if (this.mesh) {
+          this.scene.remove(this.mesh);
+          this.mesh.geometry.dispose();
+          this.mesh.material.dispose();
+        }
+
+        // Create material
+        const material = new THREE.MeshPhongMaterial({
+          color: 0x1d9bf0,
+          specular: 0x444444,
+          shininess: 30,
+          flatShading: false,
+        });
+
+        // Create mesh
+        this.mesh = new THREE.Mesh(geometry, material);
+        
+        // Center the model
+        geometry.computeBoundingBox();
+        const center = new THREE.Vector3();
+        geometry.boundingBox.getCenter(center);
+        geometry.center();
+        
+        // Scale to fit view
+        const size = new THREE.Vector3();
+        geometry.boundingBox.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale = 100 / maxDim;
+        this.mesh.scale.set(scale, scale, scale);
+
+        this.scene.add(this.mesh);
+
+        // Update info
+        this.vertexCount.textContent = geometry.attributes.position.count.toLocaleString();
+        this.faceCount.textContent = (geometry.attributes.position.count / 3).toLocaleString();
+        this.fileSize.textContent = this.formatFileSize(file.size);
+
+        // Reset camera
+        this.resetCameraView();
+
+        // Hide loading spinner
+        this.hidePreviewLoading();
+      } catch (err) {
+        console.error('Failed to load STL:', err);
+        this.hidePreviewLoading();
+        this.showToast('Failed to load 3D preview', 'error');
       }
+    };
 
-      // Create material
-      const material = new THREE.MeshPhongMaterial({
-        color: 0x1d9bf0,
-        specular: 0x444444,
-        shininess: 30,
-        flatShading: false,
-      });
-
-      // Create mesh
-      this.mesh = new THREE.Mesh(geometry, material);
-      
-      // Center the model
-      geometry.computeBoundingBox();
-      const center = new THREE.Vector3();
-      geometry.boundingBox.getCenter(center);
-      geometry.center();
-      
-      // Scale to fit view
-      const size = new THREE.Vector3();
-      geometry.boundingBox.getSize(size);
-      const maxDim = Math.max(size.x, size.y, size.z);
-      const scale = 100 / maxDim;
-      this.mesh.scale.set(scale, scale, scale);
-
-      this.scene.add(this.mesh);
-
-      // Update info
-      this.vertexCount.textContent = geometry.attributes.position.count.toLocaleString();
-      this.faceCount.textContent = (geometry.attributes.position.count / 3).toLocaleString();
-      this.fileSize.textContent = this.formatFileSize(file.size);
-
-      // Show preview section
-      this.previewSection.classList.remove('hidden');
-
-      // Reset camera
-      this.resetCameraView();
+    reader.onerror = () => {
+      this.hidePreviewLoading();
+      this.showToast('Failed to read file', 'error');
     };
 
     reader.readAsArrayBuffer(file);
