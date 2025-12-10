@@ -19,7 +19,7 @@ class STLConverter {
     this.bindElements();
     this.bindEvents();
     this.initThreeJS();
-    this.loadJobsFromStorage();
+    // Don't load jobs from storage anymore
   }
 
   bindElements() {
@@ -114,13 +114,13 @@ class STLConverter {
   }
 
   async processFiles(files) {
-    // Show preview section with loading state
+    // Clear previous jobs
+    this.jobs.clear();
+    this.renderJobs();
+    
+    // Preview the first file
     if (files.length > 0) {
-      this.previewSection.classList.remove('hidden');
-      this.previewContainer.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i><p>Loading preview...</p></div>';
-      
-      // Preview the first file
-      setTimeout(() => this.previewSTL(files[0]), 100);
+      this.previewSTL(files[0]);
     }
 
     // Upload all files for conversion
@@ -164,7 +164,6 @@ class STLConverter {
   // Job management
   addJob(job) {
     this.jobs.set(job.id, job);
-    this.saveJobsToStorage();
     this.renderJobs();
   }
 
@@ -172,14 +171,12 @@ class STLConverter {
     const job = this.jobs.get(jobId);
     if (job) {
       Object.assign(job, updates);
-      this.saveJobsToStorage();
       this.renderJobs();
     }
   }
 
   removeJob(jobId) {
     this.jobs.delete(jobId);
-    this.saveJobsToStorage();
     this.renderJobs();
   }
 
@@ -283,32 +280,6 @@ class STLConverter {
     }
   }
 
-  saveJobsToStorage() {
-    const jobsArray = Array.from(this.jobs.entries());
-    localStorage.setItem('stl-converter-jobs', JSON.stringify(jobsArray));
-  }
-
-  loadJobsFromStorage() {
-    try {
-      const stored = localStorage.getItem('stl-converter-jobs');
-      if (stored) {
-        const jobsArray = JSON.parse(stored);
-        this.jobs = new Map(jobsArray);
-        
-        // Resume polling for incomplete jobs
-        for (const [jobId, job] of this.jobs) {
-          if (job.status === 'queued' || job.status === 'processing') {
-            this.startPollingJob(jobId);
-          }
-        }
-        
-        this.renderJobs();
-      }
-    } catch (err) {
-      console.error('Failed to load jobs from storage:', err);
-    }
-  }
-
   // Three.js Preview
   initThreeJS() {
     // Scene
@@ -366,10 +337,6 @@ class STLConverter {
     const reader = new FileReader();
     
     reader.onload = (e) => {
-      // Remove loading message
-      const loadingDiv = this.previewContainer.querySelector('.loading');
-      if (loadingDiv) loadingDiv.remove();
-      
       const loader = new THREE.STLLoader();
       const geometry = loader.parse(e.target.result);
       
