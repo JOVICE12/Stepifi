@@ -21,6 +21,8 @@ services:
     volumes:
       - uploads:/app/uploads
       - converted:/app/converted
+      - ./src:/app/src
+      - ./public:/app/public
     depends_on:
       redis:
         condition: service_healthy

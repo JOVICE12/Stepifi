@@ -244,7 +244,7 @@ class STLConverter {
           }
 
           // Continue polling
-          setTimeout(poll, 1500);
+          setTimeout(poll, 3000);
         } else {
           this.updateJob(jobId, { status: 'failed', error: data.error });
         }
