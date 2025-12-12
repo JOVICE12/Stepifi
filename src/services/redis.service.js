@@ -68,6 +68,35 @@ class RedisService {
     return data ? JSON.parse(data) : null;
   }
 
+  async getAllJobs() {
+    const client = this.getClient();
+    
+    // Get all keys matching job:*
+    const keys = await client.keys('job:*');
+    
+    if (keys.length === 0) {
+      return [];
+    }
+    
+    // Get all job data
+    const jobs = [];
+    for (const key of keys) {
+      const data = await client.get(key);
+      if (data) {
+        const job = JSON.parse(data);
+        // Get TTL for each job
+        const ttl = await client.ttl(key);
+        job.expiresIn = ttl > 0 ? ttl : 0;
+        jobs.push(job);
+      }
+    }
+    
+    // Sort by creation date, newest first
+    jobs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    return jobs;
+  }
+
   async updateJob(jobId, updates) {
     const client = this.getClient();
     const key = `job:${jobId}`;

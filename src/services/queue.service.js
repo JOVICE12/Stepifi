@@ -45,6 +45,9 @@ class QueueService {
       {
         connection,
         concurrency: config.jobs.maxConcurrent,
+        lockDuration: 1800000, // 30 minutes - critical for large meshes
+        stalledInterval: 60000, // Check for stalled jobs every 60 seconds
+        maxStalledCount: 1, // Only retry once if actually stalled
         limiter: {
           max: 5,
           duration: 1000,

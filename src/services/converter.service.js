@@ -1,10 +1,10 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const config = require('../config');
 const logger = require('../utils/logger');
 
-// FreeCAD headless binary
 const FREECAD = '/opt/conda/bin/freecadcmd';
 
 const FREECAD_ENV = {
@@ -21,21 +21,31 @@ class ConverterService {
   }
 
   extractJson(stdout) {
-    // Find the last JSON block inside messy stdout
-    const matches = stdout.match(/\{[\s\S]*\}$/gm);
-    if (!matches) return null;
-
-    const last = matches[matches.length - 1];
-    try {
-      return JSON.parse(last);
-    } catch {
-      return null;
+    const lastBrace = stdout.lastIndexOf('}');
+    if (lastBrace === -1) return null;
+    
+    let depth = 0;
+    for (let i = lastBrace; i >= 0; i--) {
+      if (stdout[i] === '}') depth++;
+      if (stdout[i] === '{') {
+        depth--;
+        if (depth === 0) {
+          const jsonStr = stdout.substring(i, lastBrace + 1);
+          try {
+            return JSON.parse(jsonStr);
+          } catch {
+            return null;
+          }
+        }
+      }
     }
+    return null;
   }
 
   async convert(inputPath, outputPath, options = {}) {
     const tolerance = options.tolerance || config.conversion.defaultTolerance;
     const repair = options.repair !== false;
+    const inputFormat = options.inputFormat || 'stl'; // Default to STL
 
     try {
       await fs.access(inputPath);
@@ -44,73 +54,89 @@ class ConverterService {
     }
 
     return new Promise((resolve) => {
-      const pythonArgv = JSON.stringify([
+      const args = [
         this.pythonScript,
         inputPath,
         outputPath,
-        `--tolerance=${tolerance}`,
-        repair ? "--repair" : "--no-repair"
-      ]);
+        tolerance.toString(),
+        repair ? 'repair' : 'no-repair',
+        inputFormat
+      ];
 
-      const code = `
-import sys
-sys.argv = ${pythonArgv}
-exec(open("${this.pythonScript}").read())
-`;
-
-      const args = ['-c', code];
-
-      logger.debug("Running FreeCAD conversion", { cmd: FREECAD, args });
+      logger.info("Running FreeCAD conversion", { 
+        cmd: FREECAD, 
+        args, 
+        format: inputFormat 
+      });
 
       const proc = spawn(FREECAD, args, {
         env: FREECAD_ENV,
-        timeout: config.conversion.timeout
+        timeout: config.conversion.timeout,
+        maxBuffer: 50 * 1024 * 1024
       });
 
       let stdout = '';
       let stderr = '';
 
-      proc.stdout.on('data', (d) => stdout += d.toString());
-      proc.stderr.on('data', (d) => stderr += d.toString());
+      proc.stdout.on('data', (d) => {
+        stdout += d.toString();
+      });
+      
+      proc.stderr.on('data', (d) => {
+        stderr += d.toString();
+      });
 
-      proc.on('close', () => {
+      proc.on('close', (code) => {
+        logger.info("Process closed", { 
+          code, 
+          format: inputFormat,
+          stdoutLen: stdout.length, 
+          stderrLen: stderr.length 
+        });
+        
+        try {
+          fsSync.writeFileSync('/tmp/last-stdout.txt', stdout);
+          fsSync.writeFileSync('/tmp/last-stderr.txt', stderr);
+        } catch (e) {}
+        
         const parsed = this.extractJson(stdout);
-
+        
         if (parsed) {
           resolve(parsed);
         } else {
-          logger.error("Failed parsing JSON output", { stdout, stderr });
+          logger.error("Failed parsing", { 
+            format: inputFormat,
+            stdoutLen: stdout.length, 
+            last200: stdout.substring(Math.max(0, stdout.length - 200)) 
+          });
           resolve({
             success: false,
             error: "Failed to parse JSON output from FreeCAD",
-            stdout,
+            stdout: stdout.substring(Math.max(0, stdout.length - 2000)),
             stderr
           });
         }
       });
 
       proc.on('error', (err) => {
+        logger.error("Spawn error", { error: err.message, format: inputFormat });
         resolve({ success: false, error: err.message });
       });
     });
   }
 
-  async getMeshInfo(inputPath) {
+  async getMeshInfo(inputPath, inputFormat = 'stl') {
     return new Promise((resolve) => {
-      const pythonArgv = JSON.stringify([
+      const args = [
         this.pythonScript,
         inputPath,
-        "/dev/null",
-        "--info"
-      ]);
+        '/dev/null',
+        '0.01',
+        'no-repair',
+        inputFormat
+      ];
 
-      const code = `
-import sys
-sys.argv = ${pythonArgv}
-exec(open("${this.pythonScript}").read())
-`;
-
-      const proc = spawn(FREECAD, ['-c', code], {
+      const proc = spawn(FREECAD, args, {
         env: FREECAD_ENV,
         timeout: 30000
       });

@@ -56,24 +56,28 @@ class FileService {
   }
 
   async deleteJobFiles(jobId) {
+    // Try both STL and 3MF extensions
     const stlPath = this.getUploadPath(`${jobId}.stl`);
+    const threemfPath = this.getUploadPath(`${jobId}.3mf`);
     const stepPath = this.getConvertedPath(`${jobId}.step`);
     
     const results = await Promise.all([
       this.deleteFile(stlPath),
+      this.deleteFile(threemfPath),
       this.deleteFile(stepPath),
     ]);
     
     return {
       stlDeleted: results[0],
-      stepDeleted: results[1],
+      threemfDeleted: results[1],
+      stepDeleted: results[2],
     };
   }
 
   async listUploads() {
     try {
       const files = await fs.readdir(this.uploadsDir);
-      return files.filter(f => f.endsWith('.stl'));
+      return files.filter(f => f.endsWith('.stl') || f.endsWith('.3mf'));
     } catch {
       return [];
     }
@@ -94,8 +98,11 @@ class FileService {
       this.listConverted(),
     ]);
     
-    // Get job IDs from filenames
-    const uploadIds = new Set(uploads.map(f => path.basename(f, '.stl')));
+    // Get job IDs from filenames (handle both .stl and .3mf)
+    const uploadIds = new Set(uploads.map(f => {
+      // Remove both .stl and .3mf extensions
+      return path.basename(f).replace(/\.(stl|3mf)$/i, '');
+    }));
     const convertedIds = new Set(converted.map(f => path.basename(f, '.step')));
     
     return {
@@ -112,7 +119,8 @@ class FileService {
     let cleaned = 0;
     
     for (const file of uploads) {
-      const jobId = path.basename(file, '.stl');
+      // Extract jobId from filename (handle both .stl and .3mf)
+      const jobId = path.basename(file).replace(/\.(stl|3mf)$/i, '');
       if (!validSet.has(jobId)) {
         await this.deleteFile(path.join(this.uploadsDir, file));
         cleaned++;
