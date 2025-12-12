@@ -70,14 +70,13 @@ class RedisService {
 
   async getAllJobs() {
     const client = this.getClient();
-    
     // Get all keys matching job:*
     const keys = await client.keys('job:*');
-    
+
     if (keys.length === 0) {
       return [];
     }
-    
+
     // Get all job data
     const jobs = [];
     for (const key of keys) {
@@ -90,32 +89,50 @@ class RedisService {
         jobs.push(job);
       }
     }
-    
+
     // Sort by creation date, newest first
     jobs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    
+
     return jobs;
   }
 
   async updateJob(jobId, updates) {
     const client = this.getClient();
     const key = `job:${jobId}`;
+
     const existing = await this.getJob(jobId);
-    
     if (!existing) {
       throw new Error(`Job ${jobId} not found`);
     }
-    
+
     const ttl = await client.ttl(key);
     const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
-    
+
     if (ttl > 0) {
       await client.setex(key, ttl, JSON.stringify(updated));
     } else {
       await client.set(key, JSON.stringify(updated));
     }
-    
+
     return updated;
+  }
+
+  async updateJobStatus(jobId, status, progress, error = null) {
+    const updates = {
+      status,
+      progress,
+      updatedAt: new Date().toISOString()
+    };
+    
+    if (error) {
+      updates.error = error;
+    }
+    
+    if (status === 'failed' && error) {
+      updates.message = error;
+    }
+    
+    return this.updateJob(jobId, updates);
   }
 
   async deleteJob(jobId) {

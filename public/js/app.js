@@ -77,6 +77,7 @@ class STLConverter {
     this.toleranceInput = document.getElementById('tolerance');
     this.toleranceValue = document.getElementById('toleranceValue');
     this.repairMeshCheckbox = document.getElementById('repairMesh');
+    this.skipFaceMergeCheckbox = document.getElementById('skipFaceMerge');
     this.previewSection = document.getElementById('previewSection');
     this.previewContainer = document.getElementById('previewContainer');
     this.previewCanvas = document.getElementById('previewCanvas');
@@ -370,6 +371,7 @@ class STLConverter {
     formData.append('meshFile', file);  // Changed from 'stlFile' to match backend
     formData.append('tolerance', this.toleranceInput.value);
     formData.append('repair', this.repairMeshCheckbox.checked);
+    formData.append('skipFaceMerge', this.skipFaceMergeCheckbox.checked);
 
     // Warn for large files
     if (file.size > 5 * 1024 * 1024) {

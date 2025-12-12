@@ -43,49 +43,59 @@ class ConverterService {
   }
 
   async convert(inputPath, outputPath, options = {}) {
+    const result = await this.convertWithProcess(inputPath, outputPath, options);
+    return result.promise;
+  }
+
+  async convertWithProcess(inputPath, outputPath, options = {}) {
     const tolerance = options.tolerance || config.conversion.defaultTolerance;
     const repair = options.repair !== false;
+    const skipFaceMerge = options.skipFaceMerge === true;
     const inputFormat = options.inputFormat || 'stl'; // Default to STL
 
     try {
       await fs.access(inputPath);
     } catch {
-      return { success: false, error: 'Input file not found' };
+      return {
+        process: null,
+        promise: Promise.resolve({ success: false, error: 'Input file not found' })
+      };
     }
 
-    return new Promise((resolve) => {
-      const args = [
-        this.pythonScript,
-        inputPath,
-        outputPath,
-        tolerance.toString(),
-        repair ? 'repair' : 'no-repair',
-        inputFormat
-      ];
+    const args = [
+      this.pythonScript,
+      inputPath,
+      outputPath,
+      tolerance.toString(),
+      repair ? 'repair' : 'no-repair',
+      inputFormat,
+      skipFaceMerge ? 'skip-merge' : 'merge'
+    ];
 
-      logger.info("Running FreeCAD conversion", { 
-        cmd: FREECAD, 
-        args, 
-        format: inputFormat 
-      });
+    logger.info("Running FreeCAD conversion", { 
+      cmd: FREECAD, 
+      args, 
+      format: inputFormat 
+    });
 
-      const proc = spawn(FREECAD, args, {
-        env: FREECAD_ENV,
-        timeout: config.conversion.timeout,
-        maxBuffer: 50 * 1024 * 1024
-      });
+    const proc = spawn(FREECAD, args, {
+      env: FREECAD_ENV,
+      timeout: config.conversion.timeout,
+      maxBuffer: 50 * 1024 * 1024
+    });
 
-      let stdout = '';
-      let stderr = '';
+    let stdout = '';
+    let stderr = '';
 
-      proc.stdout.on('data', (d) => {
-        stdout += d.toString();
-      });
-      
-      proc.stderr.on('data', (d) => {
-        stderr += d.toString();
-      });
+    proc.stdout.on('data', (d) => {
+      stdout += d.toString();
+    });
+    
+    proc.stderr.on('data', (d) => {
+      stderr += d.toString();
+    });
 
+    const promise = new Promise((resolve) => {
       proc.on('close', (code) => {
         logger.info("Process closed", { 
           code, 
@@ -123,6 +133,8 @@ class ConverterService {
         resolve({ success: false, error: err.message });
       });
     });
+
+    return { process: proc, promise };
   }
 
   async getMeshInfo(inputPath, inputFormat = 'stl') {

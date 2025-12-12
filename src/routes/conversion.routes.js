@@ -74,6 +74,10 @@ router.post(
       .optional()
       .isBoolean()
       .withMessage('Repair must be a boolean'),
+    body('skipFaceMerge')
+      .optional()
+      .isBoolean()
+      .withMessage('skipFaceMerge must be a boolean'),
   ],
   async (req, res) => {
     try {
@@ -98,6 +102,7 @@ router.post(
       const options = {
         tolerance: parseFloat(req.body.tolerance) || config.conversion.defaultTolerance,
         repair: req.body.repair !== 'false',
+        skipFaceMerge: req.body.skipFaceMerge === 'true',
         originalFilename: req.file.originalname,
         inputFormat: path.extname(req.file.originalname).toLowerCase().substring(1), // 'stl' or '3mf'
       };
@@ -342,9 +347,23 @@ router.delete(
         });
       }
 
+      logger.info(`[DELETE] About to call cancelJob for ${jobId}`);
+      
+      // Cancel the job (kills running process if active)
+      try {
+        await queueService.cancelJob(jobId);
+        logger.info(`[DELETE] cancelJob completed for ${jobId}`);
+      } catch (cancelError) {
+        logger.error(`[DELETE] cancelJob failed for ${jobId}:`, cancelError);
+      }
+
+      logger.info(`[DELETE] About to delete files for ${jobId}`);
+      
       // Delete files
       await fileService.deleteJobFiles(jobId);
 
+      logger.info(`[DELETE] About to delete from Redis for ${jobId}`);
+      
       // Delete from Redis
       await redisService.deleteJob(jobId);
 

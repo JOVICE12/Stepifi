@@ -1,140 +1,115 @@
 const { Queue, Worker } = require('bullmq');
 const config = require('../config');
 const logger = require('../utils/logger');
-const converterService = require('./converter.service');
 const redisService = require('./redis.service');
+const converterService = require('./converter.service');
+const fileService = require('./file.service');
 
 class QueueService {
   constructor() {
     this.queue = null;
     this.worker = null;
+    this.activeProcesses = new Map(); // Track running processes by jobId
   }
 
   initialize() {
+    const redisConfig = config.redis;
+    
     const connection = {
-      host: config.redis.host,
-      port: config.redis.port,
-      password: config.redis.password,
+      host: redisConfig.host,
+      port: redisConfig.port,
+      password: redisConfig.password,
     };
 
-    // Create queue
-    this.queue = new Queue('stl-conversion', {
+    // Create queue for adding jobs
+    this.queue = new Queue('conversion', { connection });
+
+    // Create worker for processing jobs
+    this.worker = new Worker('conversion', async (job) => {
+      const { jobId, inputPath, outputPath, options } = job.data;
+      
+      logger.info(`Processing job ${jobId}`, { inputPath, options });
+
+      try {
+        // Check if job still exists in Redis (might have been canceled)
+        const jobData = await redisService.getJob(jobId);
+        if (!jobData) {
+          logger.info(`Job ${jobId} was canceled, skipping processing`);
+          return { success: false, error: 'Job was canceled' };
+        }
+
+        // Update status to processing
+        await redisService.updateJobStatus(jobId, 'processing', 0);
+
+        // Convert - this returns the child process
+        const conversionProcess = await converterService.convertWithProcess(
+          inputPath,
+          outputPath,
+          options
+        );
+
+        // Store the process so we can kill it if canceled
+        this.activeProcesses.set(jobId, conversionProcess.process);
+
+        // Wait for conversion to complete
+        const result = await conversionProcess.promise;
+
+        // Clean up process tracking
+        this.activeProcesses.delete(jobId);
+
+        if (result.success) {
+          await redisService.updateJobStatus(jobId, 'completed', 100);
+          logger.info(`Job ${jobId} conversion successful`, {
+            facets: result.mesh_info_before?.facets,
+            outputSize: result.output_size,
+          });
+        } else {
+          await redisService.updateJobStatus(jobId, 'failed', 0, result.error);
+          logger.error(`Job ${jobId} failed:`, result.error);
+        }
+
+        return result;
+
+      } catch (error) {
+        this.activeProcesses.delete(jobId);
+        
+        // Only update Redis if job still exists
+        const jobData = await redisService.getJob(jobId);
+        if (jobData) {
+          await redisService.updateJobStatus(jobId, 'failed', 0, error.message);
+        }
+        
+        logger.error(`Job ${jobId} error:`, error);
+        throw error;
+      }
+    }, { 
       connection,
-      defaultJobOptions: {
-        removeOnComplete: {
-          age: 3600, // Keep completed jobs for 1 hour
-          count: 100, // Keep last 100 completed jobs
-        },
-        removeOnFail: {
-          age: 24 * 3600, // Keep failed jobs for 24 hours
-        },
-        attempts: config.jobs.maxRetries,
-        backoff: {
-          type: 'exponential',
-          delay: 1000,
-        },
-      },
+      removeOnComplete: { count: 0 },
+      removeOnFail: { count: 10 }
     });
 
-    // Create worker
-    this.worker = new Worker(
-      'stl-conversion',
-      async (job) => {
-        return this.processJob(job);
-      },
-      {
-        connection,
-        concurrency: config.jobs.maxConcurrent,
-        lockDuration: 1800000, // 30 minutes - critical for large meshes
-        stalledInterval: 60000, // Check for stalled jobs every 60 seconds
-        maxStalledCount: 1, // Only retry once if actually stalled
-        limiter: {
-          max: 5,
-          duration: 1000,
-        },
-      }
-    );
-
-    // Worker events
-    this.worker.on('completed', (job, result) => {
-      logger.info(`Job ${job.id} completed`, { jobId: job.data.jobId });
+    // Worker event handlers
+    this.worker.on('completed', (job) => {
+      logger.info(`Job convert-${job.data.jobId} completed`, { jobId: job.data.jobId });
     });
 
     this.worker.on('failed', (job, err) => {
-      logger.error(`Job ${job.id} failed: ${err.message}`, { 
-        jobId: job?.data?.jobId,
+      logger.error(`Job convert-${job.data.jobId} failed`, { 
+        jobId: job?.data?.jobId, 
         error: err.message 
       });
-    });
-
-    this.worker.on('error', (err) => {
-      logger.error('Worker error:', err);
     });
 
     logger.info('Queue service initialized');
     return this.queue;
   }
 
-  async processJob(job) {
-    const { jobId, inputPath, outputPath, options } = job.data;
-    
-    logger.info(`Processing job ${jobId}`, { inputPath, options });
-    
-    try {
-      // Update job status to processing
-      await redisService.updateJob(jobId, { 
-        status: 'processing',
-        progress: 10,
-        message: 'Starting conversion...'
-      });
-      
-      // Run conversion
-      const result = await converterService.convert(inputPath, outputPath, options);
-      
-      if (result.success) {
-        // Update job with success
-        await redisService.updateJob(jobId, {
-          status: 'completed',
-          progress: 100,
-          message: 'Conversion complete',
-          result: {
-            outputPath,
-            meshInfo: result.mesh_info_before,
-            meshInfoAfter: result.mesh_info_after,
-            repairs: result.repairs,
-            isSolid: result.is_solid,
-            outputSize: result.output_size,
-          },
-        });
-        
-        logger.info(`Job ${jobId} conversion successful`, { 
-          facets: result.mesh_info_before?.facets,
-          outputSize: result.output_size 
-        });
-        
-        return result;
-      } else {
-        throw new Error(result.error || 'Conversion failed');
-      }
-    } catch (err) {
-      // Update job with failure
-      await redisService.updateJob(jobId, {
-        status: 'failed',
-        progress: 0,
-        message: err.message,
-        error: err.message,
-      });
-      
-      throw err;
-    }
-  }
-
-  async addJob(jobId, inputPath, outputPath, options = {}) {
+  async addJob(jobId, inputPath, outputPath, options) {
     if (!this.queue) {
       throw new Error('Queue not initialized');
     }
-    
-    const job = await this.queue.add(
+
+    await this.queue.add(
       'convert',
       {
         jobId,
@@ -144,26 +119,82 @@ class QueueService {
       },
       {
         jobId: `convert-${jobId}`,
-        priority: options.priority || 0,
       }
     );
+
+    logger.info(`Job ${jobId} added to queue`, { queueJobId: `convert-${jobId}` });
+  }
+
+  async cancelJob(jobId) {
+    logger.info(`[cancelJob] START - Job ${jobId}`);
     
-    logger.info(`Job ${jobId} added to queue`, { queueJobId: job.id });
-    return job;
+    if (!this.queue) {
+      logger.error(`[cancelJob] Queue not initialized!`);
+      throw new Error('Queue not initialized');
+    }
+
+    logger.info(`[cancelJob] Canceling job ${jobId}`);
+
+    // 1. Kill the tracked process if it exists
+    const process = this.activeProcesses.get(jobId);
+    logger.info(`[cancelJob] Tracked process for ${jobId}: ${process ? `PID ${process.pid}` : 'none'}`);
+    
+    if (process && !process.killed) {
+      logger.info(`[cancelJob] Killing tracked FreeCAD process for job ${jobId}`, { pid: process.pid });
+      try {
+        process.kill('SIGKILL');
+        this.activeProcesses.delete(jobId);
+        logger.info(`[cancelJob] Tracked process killed for job ${jobId}`);
+      } catch (error) {
+        logger.error(`[cancelJob] Failed to kill tracked process for job ${jobId}:`, error);
+      }
+    }
+
+	// 2. AGGRESSIVE: Kill ALL FreeCAD processes (in case tracking failed)
+	logger.info(`[cancelJob] Killing all FreeCAD processes as fallback`);
+	const { exec } = require('child_process');
+	exec('ps aux | grep freecadcmd | grep -v grep | awk \'{print $2}\' | xargs -r kill -9', (error, stdout, stderr) => {
+	  if (error) {
+		logger.error(`[cancelJob] kill error:`, error);
+	  } else {
+		logger.info(`[cancelJob] All FreeCAD processes killed via kill command`);
+	  }
+	});
+
+    // 3. Remove from BullMQ queue
+    logger.info(`[cancelJob] Removing from BullMQ queue: convert-${jobId}`);
+    try {
+      const job = await this.queue.getJob(`convert-${jobId}`);
+      if (job) {
+        await job.remove();
+        logger.info(`[cancelJob] Job ${jobId} removed from queue`);
+      } else {
+        logger.info(`[cancelJob] Job ${jobId} not found in queue`);
+      }
+    } catch (error) {
+      logger.error(`[cancelJob] Failed to remove job ${jobId} from queue:`, error);
+    }
+    
+    logger.info(`[cancelJob] END - Job ${jobId}`);
   }
 
-  getQueue() {
-    return this.queue;
-  }
+  async getQueueStats() {
+    if (!this.queue) {
+      return null;
+    }
 
-  async close() {
-    if (this.worker) {
-      await this.worker.close();
-    }
-    if (this.queue) {
-      await this.queue.close();
-    }
-    logger.info('Queue service closed');
+    const waiting = await this.queue.getWaitingCount();
+    const active = await this.queue.getActiveCount();
+    const completed = await this.queue.getCompletedCount();
+    const failed = await this.queue.getFailedCount();
+
+    return {
+      waiting,
+      active,
+      completed,
+      failed,
+      activeProcesses: this.activeProcesses.size,
+    };
   }
 }
 

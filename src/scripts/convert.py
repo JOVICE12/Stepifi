@@ -403,7 +403,7 @@ def load_3mf_file(input_path):
             debug_print(f"Failed to clean up temp directory: {temp_dir}")
 
 
-def convert(input_path, output_path, tolerance=0.01, repair=True, info_only=False, input_format='stl'):
+def convert(input_path, output_path, tolerance=0.01, repair=True, info_only=False, input_format='stl', skip_face_merge=False):
     debug_print("="*60)
     debug_print(f"CONVERSION STARTED")
     debug_print(f"Input: {input_path}")
@@ -411,6 +411,7 @@ def convert(input_path, output_path, tolerance=0.01, repair=True, info_only=Fals
     debug_print(f"Format: {input_format}")
     debug_print(f"Tolerance: {tolerance}")
     debug_print(f"Repair: {repair}")
+    debug_print(f"Skip Face Merge: {skip_face_merge}")
     debug_print("="*60)
 
     result = {
@@ -504,7 +505,7 @@ def convert(input_path, output_path, tolerance=0.01, repair=True, info_only=Fals
             solid = Part.makeSolid(shape)
             
             # Merge planar faces on this solid NOW (before compound)
-            if mesh.CountFacets <= 100000:
+            if not skip_face_merge and mesh.CountFacets <= 100000:
                 debug_print(f"Merging planar faces for solid {i+1}...")
                 # Use more aggressive tolerance for merging - multiply by 10
                 merge_tolerance = tolerance * 10.0
@@ -512,6 +513,8 @@ def convert(input_path, output_path, tolerance=0.01, repair=True, info_only=Fals
                 solid, merged = merge_planar_faces(solid, merge_tolerance)
                 if merged:
                     debug_print(f"Solid {i+1} faces merged successfully")
+            elif skip_face_merge:
+                debug_print(f"Skipping face merge for solid {i+1} (skip_face_merge=True)")
             
             solids.append(solid)
             debug_print(f"Successfully created solid {i+1}")
@@ -552,11 +555,14 @@ def convert(input_path, output_path, tolerance=0.01, repair=True, info_only=Fals
 
     # For multi-object 3MF, faces were already merged per-solid
     # Only try compound-level merge for single objects
-    if len(processed_meshes) == 1 and total_facets <= 100000:
+    if not skip_face_merge and len(processed_meshes) == 1 and total_facets <= 100000:
         merge_tolerance = tolerance * 10.0
         debug_print(f"Single object - merging with tolerance: {merge_tolerance}")
         final, merged_ok = merge_planar_faces(final, merge_tolerance)
         result["merged_planar_faces"] = merged_ok
+    elif skip_face_merge:
+        debug_print("Skipping final face merge (skip_face_merge=True)")
+        result["merged_planar_faces"] = False
     elif len(processed_meshes) > 1:
         debug_print("Multi-object file - faces already merged per-solid")
         result["merged_planar_faces"] = True
@@ -611,11 +617,12 @@ def main():
     tolerance = float(sys.argv[4]) if len(sys.argv) > 4 else 0.01
     repair = sys.argv[5].lower() != 'no-repair' if len(sys.argv) > 5 else True
     input_format = sys.argv[6] if len(sys.argv) > 6 else 'stl'
+    skip_face_merge = sys.argv[7].lower() == 'skip-merge' if len(sys.argv) > 7 else False
     info_only = False
 
-    debug_print(f"Parsed: input={input_file}, output={output_file}, tol={tolerance}, repair={repair}, format={input_format}")
+    debug_print(f"Parsed: input={input_file}, output={output_file}, tol={tolerance}, repair={repair}, format={input_format}, skip_face_merge={skip_face_merge}")
 
-    convert(input_file, output_file, tolerance, repair, info_only, input_format)
+    convert(input_file, output_file, tolerance, repair, info_only, input_format, skip_face_merge)
 
 
 debug_print("Calling main() unconditionally (FreeCAD compatibility)")
