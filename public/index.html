@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>STL to STEP Converter</title>
+  <title>STL/3MF to STEP Converter</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
     <header class="header">
       <div class="header-content">
         <div class="logo">
-          <img src="/logo.png" alt="STL to STEP Converter" class="logo-img">
+          <img src="/logo.png" alt="Stepifi" class="logo-img">
         </div>
         <div class="header-actions">
           <button id="healthBtn" class="btn btn-ghost" title="Check System Health">
@@ -34,16 +34,16 @@
           <div id="dropZone" class="drop-zone">
             <div class="drop-zone-content">
               <i class="fas fa-cloud-upload-alt drop-icon"></i>
-              <h2>Drop STL files here</h2>
+              <h2>Drop STL or 3MF files here</h2>
               <p>or click to browse</p>
-              <input type="file" id="fileInput" accept=".stl" multiple hidden>
+              <input type="file" id="fileInput" accept=".stl,.3mf" multiple hidden>
             </div>
             <div class="drop-zone-active">
               <i class="fas fa-file-import"></i>
               <p>Release to upload</p>
             </div>
           </div>
-          
+
           <!-- Conversion Options -->
           <div class="options-panel">
             <h3><i class="fas fa-sliders-h"></i> Conversion Options</h3>
@@ -141,7 +141,13 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
-  
+  <!-- fflate is required for 3MFLoader to decompress 3MF files -->
+  <script type="module">
+    import * as fflate from 'https://cdn.skypack.dev/fflate@0.8.1';
+    window.fflate = fflate;
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/3MFLoader.js"></script>
+
   <!-- App -->
   <script src="/js/app.js"></script>
 </body>
